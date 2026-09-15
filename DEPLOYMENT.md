@@ -347,6 +347,65 @@ sudo systemctl reload apache2
 
 ## 10. Complete Installation
 
+### Troubleshooting: `dataroot` Error
+
+If Moodle reports:
+
+```text
+$CFG->dataroot is not configured properly, directory does not exist or is not accessible
+```
+
+create the data directory and make it accessible to the web-service account:
+
+```bash
+sudo install -d -o www-data -g www-data -m 2770 /var/moodledata
+sudo chmod 2770 /var/moodledata
+```
+
+Confirm that the `www-data` user can enter the directory and write to it:
+
+```bash
+sudo -u www-data test -r /var/moodledata && echo "readable"
+sudo -u www-data test -w /var/moodledata && echo "writable"
+sudo -u www-data touch /var/moodledata/.moodle-write-test
+sudo -u www-data rm /var/moodledata/.moodle-write-test
+```
+
+All three checks must succeed. Also verify that the parent directory permits traversal:
+
+```bash
+namei -l /var/moodledata
+```
+
+The server-only `/var/www/moodle/config.php` must contain the exact absolute path:
+
+```php
+$CFG->dataroot = '/var/moodledata';
+```
+
+Check the configured value without printing the database password:
+
+```bash
+sudo grep -n "dataroot" /var/www/moodle/config.php
+```
+
+If the directory was created under the wrong path, remove only the empty incorrect directory and use `/var/moodledata`. Never put `moodledata` inside `/var/www/moodle/public`, because Apache could expose uploaded files.
+
+If a database or administrator password has been exposed in a screenshot, terminal recording, chat, or log, do not reuse it. Change the MariaDB password before retrying:
+
+```bash
+sudo mariadb
+```
+
+```sql
+ALTER USER 'moodleuser'@'localhost'
+    IDENTIFIED BY 'CHANGE_ME_NEW_LONG_RANDOM_DATABASE_PASSWORD';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+Update `$CFG->dbpass` in `/var/www/moodle/config.php` to the new database password. Use a new, unrelated value for `--adminpass` when rerunning the installer. If installation failed before the Moodle tables and administrator were created, there is no existing Moodle administrator password to change.
+
 Open the HTTPS hostname in a browser:
 
 ```text
