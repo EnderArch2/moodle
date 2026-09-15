@@ -88,6 +88,34 @@ The rest of this guide assumes PHP 8.3 and the socket `/run/php/php8.3-fpm.sock`
 
 ## 4. MariaDB Database
 
+Moodle 5.2 requires MariaDB 10.11 or newer. Ubuntu 22.04 provides MariaDB 10.6, so configure the official MariaDB 10.11 repository before creating the Moodle database. If MariaDB 10.6 is already installed, back it up before upgrading even if the Moodle database is currently empty:
+
+```bash
+sudo mariadb-dump --all-databases --single-transaction --routines --events \
+    > "$HOME/mariadb-before-10.11.sql"
+sudo systemctl stop mariadb
+sudo apt install -y curl apt-transport-https
+curl -LsS https://r.mariadb.com/downloads/mariadb_repo_setup \
+    -o /tmp/mariadb_repo_setup
+less /tmp/mariadb_repo_setup
+sudo bash /tmp/mariadb_repo_setup \
+    --mariadb-server-version="mariadb-10.11" \
+    --skip-maxscale
+sudo apt update
+sudo apt install -y mariadb-server mariadb-client mariadb-backup
+sudo systemctl enable --now mariadb
+sudo mariadb-upgrade
+```
+
+Verify that the active server and client are both MariaDB 10.11 or newer:
+
+```bash
+mariadb --version
+sudo mariadb -NBe 'SELECT VERSION();'
+```
+
+Do not proceed while either command reports MariaDB 10.6.
+
 Run the MariaDB hardening wizard:
 
 ```bash
@@ -180,6 +208,7 @@ $CFG->dboptions = [
 $CFG->wwwroot = 'https://elearning.giovanni.net';
 $CFG->dataroot = '/var/moodledata';
 $CFG->directorypermissions = 02770;
+$CFG->routerconfigured = true;
 ```
 
 The file must end with Moodle's existing bootstrap line:
@@ -292,9 +321,14 @@ Leave Apache's default site enabled so `giovanni.net` continues to serve `/var/w
 
     <Directory /var/www/moodle/public>
         Options FollowSymLinks
-        AllowOverride All
+        AllowOverride None
         Require all granted
         DirectoryIndex index.php
+
+        RewriteEngine On
+        RewriteCond %{REQUEST_FILENAME} !-f
+        RewriteCond %{REQUEST_FILENAME} !-d
+        RewriteRule ^ /r.php [L]
     </Directory>
 
     <FilesMatch \.php$>
@@ -346,6 +380,68 @@ sudo systemctl reload apache2
 ```
 
 ## 10. Complete Installation
+
+### Required Environment Checks
+
+Before completing the installer, configure Moodle's required PHP input limit for both PHP-FPM and CLI:
+
+```bash
+printf '%s\n' 'max_input_vars = 5000' | \
+    sudo tee /etc/php/8.3/mods-available/moodle.ini
+sudo phpenmod -v 8.3 moodle
+sudo systemctl restart php8.3-fpm
+sudo systemctl reload apache2
+php -r 'echo ini_get("max_input_vars"), PHP_EOL;'
+```
+
+The final command must print `5000`. Confirm the value used by the website by creating a temporary diagnostic file:
+
+```bash
+printf '%s\n' '<?php echo ini_get("max_input_vars");' | \
+    sudo tee /var/www/moodle/public/php-setting-check.php
+curl -k https://elearning.giovanni.net/php-setting-check.php
+sudo rm /var/www/moodle/public/php-setting-check.php
+```
+
+The `curl` command must also print `5000`. Always remove the diagnostic file immediately.
+
+Install Composer and the locked production dependencies in the Moodle repository root:
+
+```bash
+sudo apt install -y composer
+cd /var/www/moodle
+sudo -u www-data composer install --no-dev --classmap-authoritative
+test -f /var/www/moodle/vendor/autoload.php && echo "Composer dependencies installed"
+```
+
+Do not run Composer in `/var/www/moodle/public`; `composer.json` and `composer.lock` are in `/var/www/moodle`.
+
+For the clean Moodle router URLs, ensure the Apache Moodle `<Directory>` block contains the rewrite rules shown in the previous section and ensure `/var/www/moodle/config.php` contains:
+
+```php
+$CFG->routerconfigured = true;
+```
+
+Validate and reload Apache after editing the virtual host:
+
+```bash
+sudo a2enmod rewrite
+sudo apache2ctl configtest
+sudo systemctl reload apache2
+```
+
+Test the router endpoints. Expected status codes are `200`, `200`, and `404` in that order:
+
+```bash
+curl -k -o /dev/null -s -w '%{http_code}\n' \
+    https://elearning.giovanni.net/core/check/controller/test
+curl -k -o /dev/null -s -w '%{http_code}\n' \
+    https://elearning.giovanni.net/api/rest/v2/openapi.json
+curl -k -o /dev/null -s -w '%{http_code}\n' \
+    https://elearning.giovanni.net/not/a/valid/request
+```
+
+Return to the installer and reload the server checks after all commands pass.
 
 ### Troubleshooting: `dataroot` Error
 
