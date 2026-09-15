@@ -1,0 +1,61 @@
+# Moodle local configuration and generated/runtime data.
+/config.php
+/moodledata/
+/tags
+/TAGS
+/cscope.*
+/.patches/
+
+# Editors and operating-system files.
+/.idea/
+.phpstorm.*
+!/.phpstorm.meta.php/
+/.phpstorm.meta.php/*
+!/.phpstorm.meta.php/di.php
+/.vscode/
+/nbproject/
+CVS
+.DS_Store
+/.settings/
+/.project
+/.buildpath
+
+# Temporary files and local caches.
+[._]*.s[a-v][a-z]
+[._]*.sw[a-p]
+[._]s[a-rt-v][a-z]
+[._]ss[a-gi-z]
+[._]sw[a-p]
+*~
+/.cache
+/.phpunit.cache
+/.phpunit.cache/
+phpunit.xml
+phpcs.xml
+
+# Composer and Node dependencies generated on a development machine.
+/composer.phar
+/vendor/
+/node_modules/
+
+# Moodle development/build artifacts.
+/behat.yml
+*/yui/build/*/*-coverage.js
+/public/lib/yuilib/*/build/*/*-coverage.js
+/public/lib/yuilib/*/*/*-coverage.js
+/atlassian-ide-plugin.xml
+/moodle-plugin-ci.phar
+/.eslintignore
+/.stylelintignore
+/jsdoc
+/public/admin/tool/componentlibrary/docs
+/public/admin/tool/componentlibrary/hugo/site/data/my-index.json
+.hugo_build.lock
+/UPGRADING-CURRENT.md
+/.phpunit.cache
+/tsconfig.aliases.json
+/.types
+
+# Local OS/editor files.
+*.swp
+*.swo
