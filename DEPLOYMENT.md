@@ -30,7 +30,20 @@ The Apache document root must be the repository's `public/` directory:
 
 Never commit the server's `config.php`, `moodledata`, database dumps, or private keys.
 
-## 2. Install Packages
+## 2. Check the Operating System and PHP Version
+
+This repository's current Moodle source requires PHP 8.3 or newer. Ubuntu 22.04 normally provides PHP 8.1, which is not compatible with this Moodle branch. Do not continue with PHP 8.1.
+
+For a fresh VM, the cleanest option is Ubuntu 24.04 LTS, which provides PHP 8.3 from the standard repositories. If you must keep Ubuntu 22.04, use the PHP 8.3 packages from the maintained Ondrej PHP PPA:
+
+```bash
+sudo apt update
+sudo apt install -y software-properties-common ca-certificates lsb-release
+sudo add-apt-repository ppa:ondrej/php
+sudo apt update
+```
+
+## 3. Install Packages
 
 Update the VPS and install the required services and common Moodle dependencies:
 
@@ -38,18 +51,32 @@ Update the VPS and install the required services and common Moodle dependencies:
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y git apache2 bind9 openssl mariadb-server \
-    php php-cli php-fpm php-mysql php-curl php-gd php-intl php-mbstring \
-    php-xml php-zip php-soap php-bcmath php-opcache unzip
+    php8.3 php8.3-cli php8.3-fpm php8.3-mysql php8.3-curl \
+    php8.3-gd php8.3-intl php8.3-mbstring php8.3-xml php8.3-zip \
+    php8.3-soap php8.3-bcmath php8.3-opcache unzip
 ```
 
 Check the installed versions. This repository's Moodle source requires PHP 8.3 or newer:
 
 ```bash
-php -v
+php8.3 -v
 mariadb --version
 ```
 
-If the distribution provides a different PHP version, use the matching PHP-FPM socket in the Apache configuration below.
+Make PHP 8.3 the command-line default if another PHP version is already installed:
+
+```bash
+sudo update-alternatives --install /usr/bin/php php /usr/bin/php8.3 83
+sudo update-alternatives --set php /usr/bin/php8.3
+```
+
+Confirm that the active PHP version is correct:
+
+```bash
+php -v
+```
+
+The output must show PHP 8.3 or newer. If you choose Ubuntu 24.04 instead, install the equivalent unversioned `php-*` packages from its standard repositories, then verify that `php -v` reports 8.3 or newer.
 
 Enable and start the services:
 
@@ -57,9 +84,9 @@ Enable and start the services:
 sudo systemctl enable --now mariadb apache2 bind9 php8.3-fpm
 ```
 
-Adjust `php8.3-fpm` if your installed PHP version is different.
+The rest of this guide assumes PHP 8.3 and the socket `/run/php/php8.3-fpm.sock`.
 
-## 3. MariaDB Database
+## 4. MariaDB Database
 
 Run the MariaDB hardening wizard:
 
@@ -103,7 +130,7 @@ Verify the credentials before continuing:
 mariadb -u moodleuser -p moodle -e 'SELECT 1;'
 ```
 
-## 4. Install Moodle Source
+## 5. Install Moodle Source
 
 Clone the GitHub repository into `/var/www/moodle`:
 
@@ -123,7 +150,7 @@ Create the Moodle data directory outside the Apache document root:
 sudo install -d -o www-data -g www-data -m 2770 /var/moodledata
 ```
 
-## 5. Create Moodle Configuration
+## 6. Create Moodle Configuration
 
 The repository includes `config-dist.php` as a template. Create the real configuration file at the repository root on the VPS:
 
@@ -170,7 +197,7 @@ sudo chmod 640 /var/www/moodle/config.php
 
 The root `.gitignore` excludes this file, so database credentials are not pushed to GitHub.
 
-## 6. BIND9 DNS
+## 7. BIND9 DNS
 
 Use `giovanni.net` for the Apache default site and `elearning.giovanni.net` for Moodle. Both names must resolve to the VPS. For a public site, create these records at your domain registrar or DNS provider. Running BIND9 on the VPS does not automatically publish records to the Internet unless the domain is delegated to your nameserver.
 
@@ -221,7 +248,7 @@ dig @192.168.1.50 elearning.giovanni.net
 
 Use `giovanni.net` for the default Apache site and `elearning.giovanni.net` in the Moodle Apache virtual host, certificate SAN, and `$CFG->wwwroot`.
 
-## 7. Self-Signed TLS Certificate
+## 8. Self-Signed TLS Certificate
 
 Generate one certificate covering both hostnames. This allows HTTPS access to the Apache default page at `giovanni.net` and Moodle at `elearning.giovanni.net`:
 
@@ -242,7 +269,7 @@ sudo chmod 600 /etc/ssl/private/moodle.key
 
 Browsers will warn about a self-signed certificate until the certificate is installed as trusted on each client device. For a public Internet site, Let's Encrypt is usually preferable because normal browsers already trust it.
 
-## 8. Apache2 Virtual Host
+## 9. Apache2 Virtual Host
 
 Enable the required Apache modules:
 
@@ -318,7 +345,7 @@ sudo apache2ctl configtest
 sudo systemctl reload apache2
 ```
 
-## 9. Complete Installation
+## 10. Complete Installation
 
 Open the HTTPS hostname in a browser:
 
@@ -354,7 +381,7 @@ sudo -u www-data php /var/www/moodle/admin/cli/install.php \
     --agree-license
 ```
 
-## 10. Cron
+## 11. Cron
 
 Moodle requires its cron task to run regularly. Add a cron entry for the web-service user:
 
@@ -368,7 +395,7 @@ Add:
 * * * * * /usr/bin/php /var/www/moodle/admin/cli/cron.php >/dev/null 2>&1
 ```
 
-## 11. Firewall and Checks
+## 12. Firewall and Checks
 
 If UFW is enabled, allow SSH and web traffic:
 
@@ -387,7 +414,7 @@ sudo journalctl -u apache2 -n 50 --no-pager
 sudo tail -n 50 /var/log/apache2/moodle-error.log
 ```
 
-## 12. Updating Moodle
+## 13. Updating Moodle
 
 Back up the database and `moodledata` before upgrades. Put Moodle into maintenance mode, pull the intended Git commit, then run the upgrade:
 
