@@ -7,7 +7,7 @@ This guide deploys Moodle from this repository on a Debian or Ubuntu VPS with:
 - BIND9
 - A self-signed HTTPS certificate
 
-Replace every value shown as `CHANGE_ME` or `example.com` before using the commands.
+This guide uses `giovanni.net` for the main domain and `elearning.giovanni.net` for Moodle. Replace every value shown as `CHANGE_ME` before using the commands.
 
 ## 1. Deployment Layout
 
@@ -17,7 +17,7 @@ Keep Moodle's uploaded files outside the web root:
 /var/www/moodle/       Moodle source code
 /var/moodledata/       Moodle uploads and runtime data
 /etc/apache2/sites-available/moodle.conf
-/etc/bind/db.moodle.example.com
+/etc/bind/db.giovanni.net
 /etc/ssl/private/moodle.key
 /etc/ssl/certs/moodle.crt
 ```
@@ -150,7 +150,7 @@ $CFG->dboptions = [
     'dbcollation' => 'utf8mb4_unicode_ci',
 ];
 
-$CFG->wwwroot = 'https://moodle.example.com';
+$CFG->wwwroot = 'https://elearning.giovanni.net';
 $CFG->dataroot = '/var/moodledata';
 $CFG->directorypermissions = 02770;
 ```
@@ -172,15 +172,15 @@ The root `.gitignore` excludes this file, so database credentials are not pushed
 
 ## 6. BIND9 DNS
 
-Use a domain that resolves to the VPS. For a private network, a name under `home.arpa` is appropriate, for example `moodle.home.arpa`. For a public site, create the DNS record at your domain registrar or DNS provider.
+Use `giovanni.net` for the Apache default site and `elearning.giovanni.net` for Moodle. Both names must resolve to the VPS. For a public site, create these records at your domain registrar or DNS provider. Running BIND9 on the VPS does not automatically publish records to the Internet unless the domain is delegated to your nameserver.
 
-The following is an example internal BIND9 zone. Replace the domain and address:
+The following is an example BIND9 zone. Replace the VPS address:
 
-Create `/etc/bind/db.moodle.home.arpa`:
+Create `/etc/bind/db.giovanni.net`:
 
 ```dns
 $TTL 86400
-@   IN  SOA ns1.moodle.home.arpa. admin.moodle.home.arpa. (
+@   IN  SOA ns1.giovanni.net. admin.giovanni.net. (
         2026091501
         3600
         900
@@ -188,25 +188,26 @@ $TTL 86400
         86400
 )
 
-    IN  NS  ns1.moodle.home.arpa.
+    IN  NS  ns1.giovanni.net.
 
-ns1 IN  A   192.168.1.50
-@   IN  A   192.168.1.50
+ns1       IN  A   192.168.1.50
+@         IN  A   192.168.1.50
+elearning IN  A   192.168.1.50
 ```
 
 Add the zone to `/etc/bind/named.conf.local`:
 
 ```bind
-zone "moodle.home.arpa" {
+zone "giovanni.net" {
     type master;
-    file "/etc/bind/db.moodle.home.arpa";
+    file "/etc/bind/db.giovanni.net";
 };
 ```
 
 Validate and reload BIND9:
 
 ```bash
-sudo named-checkzone moodle.home.arpa /etc/bind/db.moodle.home.arpa
+sudo named-checkzone giovanni.net /etc/bind/db.giovanni.net
 sudo named-checkconf
 sudo systemctl reload bind9
 ```
@@ -214,25 +215,24 @@ sudo systemctl reload bind9
 Configure the client computers or local DHCP server to use this BIND9 server for DNS. Test resolution:
 
 ```bash
-dig @192.168.1.50 moodle.home.arpa
+dig @192.168.1.50 giovanni.net
+dig @192.168.1.50 elearning.giovanni.net
 ```
 
-Use the same hostname in BIND9, Apache, the certificate SAN, and `$CFG->wwwroot`.
+Use `giovanni.net` for the default Apache site and `elearning.giovanni.net` in the Moodle Apache virtual host, certificate SAN, and `$CFG->wwwroot`.
 
 ## 7. Self-Signed TLS Certificate
 
-Generate a certificate with the hostname in `subjectAltName`:
+Generate one certificate covering both hostnames. This allows HTTPS access to the Apache default page at `giovanni.net` and Moodle at `elearning.giovanni.net`:
 
 ```bash
 sudo openssl req -x509 -nodes -newkey rsa:4096 \
     -keyout /etc/ssl/private/moodle.key \
     -out /etc/ssl/certs/moodle.crt \
     -days 825 \
-    -subj "/C=US/ST=State/L=City/O=My Moodle/CN=moodle.home.arpa" \
-    -addext "subjectAltName=DNS:moodle.home.arpa"
+    -subj "/C=US/ST=State/L=City/O=Giovanni/CN=giovanni.net" \
+    -addext "subjectAltName=DNS:giovanni.net,DNS:elearning.giovanni.net"
 ```
-
-Replace `moodle.home.arpa` with the actual hostname.
 
 Protect the private key:
 
@@ -250,16 +250,16 @@ Enable the required Apache modules:
 sudo a2enmod rewrite ssl headers proxy_fcgi setenvif
 ```
 
-Create `/etc/apache2/sites-available/moodle.conf`:
+Leave Apache's default site enabled so `giovanni.net` continues to serve `/var/www/html/index.html`. Create `/etc/apache2/sites-available/moodle.conf` for the Moodle subdomain:
 
 ```apache
 <VirtualHost *:80>
-    ServerName moodle.home.arpa
-    Redirect permanent / https://moodle.home.arpa/
+    ServerName elearning.giovanni.net
+    Redirect permanent / https://elearning.giovanni.net/
 </VirtualHost>
 
 <VirtualHost *:443>
-    ServerName moodle.home.arpa
+    ServerName elearning.giovanni.net
 
     DocumentRoot /var/www/moodle/public
 
@@ -285,11 +285,35 @@ Create `/etc/apache2/sites-available/moodle.conf`:
 </VirtualHost>
 ```
 
-Replace the hostname and PHP-FPM socket if needed. Enable the site and validate Apache:
+If you also want `https://giovanni.net` to serve the default `/var/www/html/index.html`, create `/etc/apache2/sites-available/giovanni-ssl.conf`:
+
+```apache
+<VirtualHost *:443>
+    ServerName giovanni.net
+
+    DocumentRoot /var/www/html
+
+    <Directory /var/www/html>
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+        DirectoryIndex index.html
+    </Directory>
+
+    SSLEngine on
+    SSLCertificateFile /etc/ssl/certs/moodle.crt
+    SSLCertificateKeyFile /etc/ssl/private/moodle.key
+
+    ErrorLog ${APACHE_LOG_DIR}/giovanni-ssl-error.log
+    CustomLog ${APACHE_LOG_DIR}/giovanni-ssl-access.log combined
+</VirtualHost>
+```
+
+Replace only the PHP-FPM socket if needed. Enable the Moodle site and the root HTTPS site. Do not disable `000-default.conf`:
 
 ```bash
-sudo a2dissite 000-default.conf
 sudo a2ensite moodle.conf
+sudo a2ensite giovanni-ssl.conf
 sudo apache2ctl configtest
 sudo systemctl reload apache2
 ```
@@ -299,7 +323,7 @@ sudo systemctl reload apache2
 Open the HTTPS hostname in a browser:
 
 ```text
-https://moodle.home.arpa
+https://elearning.giovanni.net
 ```
 
 Accept or install the self-signed certificate warning, then complete Moodle's web installer. Select MariaDB when prompted and use:
@@ -315,7 +339,7 @@ Alternatively, install from the command line:
 
 ```bash
 sudo -u www-data php /var/www/moodle/admin/cli/install.php \
-    --wwwroot=https://moodle.home.arpa \
+    --wwwroot=https://elearning.giovanni.net \
     --dataroot=/var/moodledata \
     --dbtype=mariadb \
     --dbhost=localhost \
@@ -326,7 +350,7 @@ sudo -u www-data php /var/www/moodle/admin/cli/install.php \
     --shortname='Moodle' \
     --adminuser=admin \
     --adminpass='CHANGE_ME_STRONG_ADMIN_PASSWORD' \
-    --adminemail=admin@example.com \
+    --adminemail=admin@giovanni.net \
     --agree-license
 ```
 
